@@ -1,15 +1,6 @@
 ## Project: Follow Me
 
 ---
-
-**Steps to complete the project:**
-
-* Clone the project repo here
-* Fill out the TODO's in the project code as mentioned here
-* Optimize your network and hyper-parameters.
-* Train your network and achieve an accuracy of 40% (0.40) using the Intersection over Union IoU metric which is final_grade_score at the bottom of your notebook.
-* Make a brief writeup report summarizing why you made the choices you did in building the network.
-
 [//]: # (Image References)
 
 [image1]: ./misc/ENCODERSTAGE.png
@@ -28,13 +19,7 @@
 
 ---
 
-### Writeup / README
-
-#### 1. Provide a write-up / README document including all rubric items addressed in a clear and concise manner. The document can be submitted either in either Markdown or a PDF format.
-
-You're reading it!
-
-#### 2. The write-up conveys an understanding of the network architecture.
+#### 1. Model Structure
 
 The network is a Fully Convolutional Network which is comprised by a **Encoder Stage** formed by three encoding blocks and a 1x1
 convolution layer, and a **Decoder Stage** formed by three decoding blocks.
@@ -45,8 +30,13 @@ The main objective for the Encoder Stage is to retrieve enough amount of feature
 from the input image for the classifier to perform effectively. This can be done through
 several techniques, and in this case this is performed by implementing a series of convolutional networks in addition to a 1x1 convolutional layer, as seen in the image below.
 
-![alt text][image1]
+```python
+    enclayer1 = encoder_block(inputs, 32, 2)
+    enclayer2 = encoder_block(enclayer1, 64, 2)
+    enclayer3 = encoder_block(enclayer2, 128, 2)
 
+    onebyonelayer = conv2d_batchnorm(enclayer3, 100, 1, 1)
+```
 The reason for using convolutional layers instead of fully connected is because
 the former preserves spatial information throughout the entire network rather
 than flatten the tensor into 2 dimensions when passing it as input, and this
@@ -54,12 +44,24 @@ feature is aligned with the semantic segmentation funcionality that this project
 
 Moreover, the specific technique used in this stage are Depthwise Separable Convolutions, which are what constitutes the "encoder_block" function. This type of convolution allows an increase of efficiency of the network, since it reduces the number of parameters in comparison to fully connected layers. This also has the extra perk of reducing overfitting for that same reason. The encoder block is shown in the image.
 
-![alt text][image2]
+```python
+def encoder_block(input_layer, filters, strides):
+
+    output_layer = separable_conv2d_batchnorm(input_layer, filters, strides)
+    return output_layer
+```
 
 The code that makes use of separable convolutions is seen in the following image. It takes
 advantage of a high level deep learning API called Keras, which was used in several pieces of the project.
 
-![alt text][image3]
+```python
+def separable_conv2d_batchnorm(input_layer, filters, strides=1):
+    output_layer = SeparableConv2DKeras(filters=filters,kernel_size=3, strides=strides,
+                                 padding='same', activation='relu')(input_layer)
+
+    output_layer = layers.BatchNormalization()(output_layer) 
+    return output_layer
+```
 
 Additionally, the use of a 1x1 convolutional layer at the end of this stage
 allows the preservetion of spatial information further, since it practically is a matrix
@@ -68,7 +70,14 @@ receiving as input images of any size, rather than being fixed to only one. The
 code used to implement it is printed next, in this case having a kernel size and
 stride of 1, and a output layer depth varying depending on the task.
 
-![alt text][image4]
+```python
+def conv2d_batchnorm(input_layer, filters, kernel_size=3, strides=1):
+    output_layer = layers.Conv2D(filters=filters, kernel_size=kernel_size, strides=strides,
+                          padding='same', activation='relu')(input_layer)
+
+    output_layer = layers.BatchNormalization()(output_layer) 
+    return output_layer
+```
 
 It may have been noticeable that both the separable convolution and regular
 convolution include a batch normalization step at their output. This is done so
@@ -85,7 +94,11 @@ each of the pixel that entered as input to the network. For this reason, the
 number of decoder blocks will be same as the encoder blocks. This stage
 implementation is seeing in the image.
 
-![alt text][image5]
+```python
+    declayer1 = decoder_block(onebyonelayer, enclayer2, 128)
+    declayer2 = decoder_block(declayer1, enclayer1, 64)
+    x = decoder_block(declayer2, inputs, 32)
+```
 
 A decoder block is formed by three steps. First, an upsampling layer is
 performed to bring the scale of the image back to its original. There exists
@@ -94,7 +107,11 @@ upsampling was chosen.
 
 Bilinear upsampling is a resampling technique that uses the weighted average of neighboring pixels to estimate new pixels. It has the advantage of speeding up performance of the network despite the fact that it does not contribute to learning as other techniques like transposed convolutions do. Moreover, its application causes the lost of some details, hence an additional step is needed to improve on this matter. The code fo the bilinear upsampling function is seen below.
 
-![alt text][image6]
+```python
+def bilinear_upsample(input_layer):
+    output_layer = BilinearUpSampling2D((2,2))(input_layer)
+    return output_layer
+```
 
 Then, as a second step information from multiple resolution scales can be used to improve over
 details lost on the upsampling and to get a better overall picture of the scene.
@@ -108,7 +125,17 @@ learning of the network by taking into account those particular spatial details 
 
 By performing this steps the encoder block is formed as shown in the following image.
 
-![alt text][image7]
+```python
+def decoder_block(small_ip_layer, large_ip_layer, filters):
+    upsampled = bilinear_upsample(small_ip_layer)
+
+    concated = layers.concatenate([upsampled, large_ip_layer])
+
+    output1 = separable_conv2d_batchnorm(concated, filters)
+    output_layer = separable_conv2d_batchnorm(output1, filters)
+
+    return output_layer
+```
 
 An overall diagram of this whole process is shown below.
 
@@ -148,11 +175,18 @@ testing was the one provided by the project and no further new data was used in
 the model. This was due mainly because it was not necessary to achieve a minimum
 score value but possibly is mandatory to obtain a better precision.
 
-#### 3. The write-up conveys the student's understanding of the parameters chosen for the the neural network.
+#### 2. Parameter Tunning
 
 The hyperparameters chosen for this project can be seen below:
 
-![alt text][image9]
+| Parameter | Value |
+| --------- | ----- |
+| Learning Rate | 0.001 |
+| Batch Size | 16 |
+| Number of Epochs | 30 |
+| Steps per Epoch | 200 |
+| Validation Steps | 50 |
+| Workers | 2 |
 
 The tuning of these parameters was mainly around the batch size and the number
 of epochs. The other parameters were left as given, and the learning rate was
@@ -170,7 +204,7 @@ Regarding the batch size, it was varied in a similar fashion to the filters in
 the encoder stage. Several values power of 2 were tested in combination with the
 parameters of the network, deciding upon a batch size of 16 based on results.
 
-#### 4. The student has a clear understanding and is able to identify the use of various techniques and concepts in network layers indicated by the write-up.
+#### 3. 1 by 1 Convolution vs Fully Connected Layers
 
 ***1 by 1 Convolution***
 
@@ -190,14 +224,14 @@ size.
 In a fully connected layer the neurons have full connections to all activations in the
 previous layer, and the activations can hence be computed with a matrix
 multiplication followed by a bias offset
-[1](http://cs231n.github.io/convolutional-networks/#fc).
+[[1]](http://cs231n.github.io/convolutional-networks/#fc).
 
 They are commonly used as a way of learning non-linear combinations of features
 normally coming from convolutioal layers. Hence, they are good for
 classification tasks like asking about the presence or absence of a certain
 object e.g. Is there a cat in the scene? 
 
-#### 5. The student has a clear understanding of image manipulation in the context of the project indicated by the write-up.
+#### 4. Image Manipulation
 
 Encoding an decoding is useful when we want to obtain a prediction or estimation
 of each of the pixels of the input image. Apart from obtaining a rich set of
@@ -213,20 +247,35 @@ upsampling is lossy by definition. This can be improved by adding skipping
 connections and trying to complement information of the scene based on the
 original images given as input.
 
-#### 6. The student displays a solid understanding of the limitations to the neural network with the given data chosen for various follow-me scenarios which are conveyed in the write-up.
+#### 5. Limitations based on Data
 
 As the structure of a neural network is important, is equally important to have a comprehensive data set. This data must cover several number of situations that the system may encounter. Not only including positive situation cases e.g. only pictures of the object to follow, but also the negative or absence situation e.g. scenes where the object is not present, in principle to avoid an overlly generalized model (overfitting). Also, it may be useful to identify particular cases where the model may have difficulties performing, and purposedly provide further data on the case e.g. in this project, it was often the case that the model failed when the hero was far from perspective and next to distractors, hence it was useful to focus efforts into expanding that case data set. Finally, it is worth mentioning that in this project's case, the object to follow (hero) had intentionally different features to similar objects (red color) which made the identification task easier, but possibly would not be so in a real world scenario.
 
-### Model
+#### 6. Future Enhancements
 
-#### 1. The model is submitted in the correct format.
+The feature extraction section can be aided or replaced by making use of transfer
+learning, hence bringing a pre-trained network from external sources like ImageNet, which is a large visual database available online.
+Ultimately, this could improve the set of features obtained or simply accelerate
+the training of the network.
+
+Also, one could explore novel proporsals for parameters configuration. An
+article in the matter proposes that the use of large kernels have positive
+effects for classification and localization tasks simultaneously. This is done
+to enable densely connections between feature maps and per-pixel classifiers,
+and results in better performance compared the previous state-of-art results [[2]](https://meetshah1995.github.io/semantic-segmentation/deep-learning/pytorch/visdom/2017/06/01/semantic-segmentation-over-the-years.html). Studies like this can promote the exploration of slightly modifying the way hyperparameters are used to eventually obtain an improvement in precision of the network.
+
+Furthermore, the field of deep learning and computer vision is constantly
+changing and evolving. An example is a "SegNet", a deep convolutional
+encoder-decoder architecture for image segmentation, whose novelty relies in the way
+the decoder upsamples the lower resolution input feature maps, keeping high frequency details intact while setting lesser parameters [[3]](https://meetshah1995.github.io/semantic-segmentation/deep-learning/pytorch/visdom/2017/06/01/semantic-segmentation-over-the-years.html). Or a "ENet" which was designed specifically for tasks requiring low latency operation [[3]](https://meetshah1995.github.io/semantic-segmentation/deep-learning/pytorch/visdom/2017/06/01/semantic-segmentation-over-the-years.html). It would be interesting to explore and understand deeply how these methodologies work and apply their techniques to improve the performance of the project.
+
+
+### Model
 
 The model file is called "model_weights" and is located in the path "data/weights/".
 Its format is shown in the image:
 
 ![alt text][image12]
-
-#### 2. The neural network must achieve a minimum level of accuracy for the network implemented.
 
 The notebook "model_training.ipynb" is included in the repository and shows all
 the code used to achieve a minimum level of accuracy of 40% using the
